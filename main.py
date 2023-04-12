@@ -1,5 +1,7 @@
 from collections import UserDict
 from datetime import datetime, timedelta
+import re
+from itertools import islice
 
 class Field:
     def __init__(self, value=None):
@@ -17,29 +19,44 @@ class Name(Field):
 
 class Phone(Field):
     def __init__(self, value):
+        self._value = None
         self.value = value
 
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        try:
+           if re.match(r'^\d{12}$', value):
+               self._value = value               
+        except ValueError:
+            return ValueError('Phone must be in 123456789012 format')
+        
+        
 class Birthday(Field):
     def __init__(self, value):
-        # self.__value = None
+        self._value = None
         self.value = value
 
-    # @property
-    # def value(self):
-    #     return self.__value.strftime('%d-%m-%Y')
+    @property
+    def value(self):
+        return self._value
 
-    # @value.setter
-    # def value(self, value):
-    #     try:
-    #         self.__value = datetime.strptime(value, '%d-%m-%Y')
-    #     except ValueError:
-    #         return 'Birthday must be in format dd-mm-yyyy'
+    @value.setter
+    def value(self, value):
+        try:
+            self._value = datetime.strptime(value, '%d-%m-%Y').date()
+            self._value = value 
+        except ValueError:
+            raise ValueError('Date must be in DD-MM-YYYY format')
 
 class Record:
-    def __init__(self, name, phone=None):
+    def __init__(self, name, phone=None, birthday=None):
         self.name = name
         self.phones = [phone] if phone else []
-        self.birthday = None
+        self.birthday = birthday
     
     def add_phone(self, phone):
         self.phones.append(phone)
@@ -55,13 +72,12 @@ class Record:
 
     def days_to_birthday(self):
         if self.birthday:
+            date = datetime.strptime(self.birthday.value, '%d-%m-%Y')
             today = datetime.now()
-            birthday = datetime.date(today.year, self.birthday.month, self.birthday.day)
+            birthday = datetime(today.year, date.month, date.day)
             if today > birthday:
                 birthday = datetime.date(today.year + 1, self.birthday.month, self.birthday.day)
             days = birthday - today
-            print(today)
-            print(days)
             return days
         
 class AddressBook(UserDict):
@@ -77,6 +93,13 @@ class AddressBook(UserDict):
             if name.lower() in key.lower():
                 search_records.append(self.data[key])
         return search_records
+    
+    def iterator(self, start=None, stop=None):
+        keys = islice(self.data.keys(), start, stop)
+        result = '\n'.join(
+            f'{i}: +{", +".join(p.value for p in self.data.get(i).phones)}, birthday {self.data.get(i).birthday}' for i in keys)
+
+        yield result
 contacts = AddressBook()
 
 def input_error(func):
@@ -88,7 +111,7 @@ def input_error(func):
         except KeyError:
             return 'No name or phone, try again or enter help'
         except  ValueError:
-            return 'No name or phone, try again or enter help'       
+            return 'Birthdate must be in dd-mm-yyyy format'       
     return inner  
 
 def hello(args) -> str:
@@ -110,6 +133,8 @@ def help(args) -> str:
 def add(args) -> str:
     name = Name(args[0])
     phone = Phone(args[1])
+    if not phone.value:
+        return "Phone must be in 123456789876 format"
     if name.value in contacts:
         record = contacts[name.value]
         record.add_phone(phone)
@@ -124,6 +149,8 @@ def add(args) -> str:
 def change(args) -> str:
     name = Name(args[0])
     phone = Phone(args[1])
+    if not phone.value:
+        return "Phone must be in 123456789876 format"
     record = contacts[name.value]
     record.change_phone(phone, 0)
     return f'Contact {name.value} modified successfully.'
@@ -150,27 +177,36 @@ def phone(args) -> str:
 def add_birthday(args):
     name = Name(args[0])
     birthday = Birthday(args[1])
-    record = Record(name)
+    if not birthday.value:
+        return "Date must be in DD-MM-YYYY format"
+    record = contacts[name.value]
     record.add_birthday(birthday)
     return 'Birthday added'
 
 @input_error
 def when_birthday(args):
     name = Name(args[0])
-    record = Record(name)
+    record = contacts[name.value]
     result = record.days_to_birthday()
     print(result)
-    return f'days to birthday: {result}'
+    return f'until the birthday: {result}'
 
 def show_all(args) ->str:
-    result = ''
-    for name in contacts.data:
-        record = contacts.data[name]
-        result += f"{record.name.value}: {', '.join(str(phone) for phone in record.phones)}\n"
-    return result.strip()
+    stop = int(input('Input quantity contacts in page'))
+    start = 0
+    step = stop
+    while True:
+        page = next(contacts.iterator(start, stop))
+        if not page:
+            break
+        print(page)
+        input('Press enter to next page')
+        start += step
+        stop += step
+    return f'End of list'
 
 def unknown_command(*args):
-    return "Invalid command"
+    return 'Invalid command'
 
 COMMANDS = {hello: 'hello', help: 'help', add: 'add', change: 'change', phone: 'phone', show_all: 'show all', delete_phone: 'del phone', add_birthday: 'set birthday', when_birthday: 'birthday'}
 
